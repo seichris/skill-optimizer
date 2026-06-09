@@ -7,7 +7,10 @@ dist/
 
 # Cache directories
 .cache/
-.opencode/
+.opencode/*
+!.opencode/INSTALL.md
+!.opencode/plugins/
+!.opencode/plugins/skill-optimizer.js
 
 # Test results and benchmarks
 results/
@@ -48,14 +51,19 @@ coverage/
 tmp/
 temp/
 
-# Superpowers planning artifacts
+# Superpowers planning artifacts and internal dev docs
 docs/superpowers/
+docs/plans/
+docs/specs/
 
 # Skill-optimizer generated artifacts
 .skill-optimizer/
+.skill-eval/
+.results/
 
 # Local user config (personal paths, model choices — not repo artifacts)
 skill-optimizer.json
 cli-commands.json
 tools.json
 tasks.json
+.worktrees/

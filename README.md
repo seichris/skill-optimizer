@@ -1,172 +1,182 @@
 # skill-optimizer
 
-Benchmark and self-optimize SDK, CLI, and MCP guidance so every agent model can use your tool reliably.
+Docker workbench and Agent Skill for running deterministic evals against agent skills.
 
-skill-optimizer runs your SDK / CLI / MCP docs against multiple LLMs, measures whether they call the right actions with the right arguments, and iteratively rewrites your `SKILL.md` / docs until a floor score is met across every model.
+Use this repo in two ways:
 
-**Requirements:** Node.js 20+, an [OpenRouter](https://openrouter.ai) API key.
+- Install the `skill-optimizer` skill/plugin into your agent so it can author and debug eval suites.
+- Run the local CLI to execute cases and suites in Docker against OpenRouter models.
 
 ## Installation
 
-```bash
-git clone https://github.com/fastxyz/skill-optimizer
-cd skill-optimizer
-npm install
-npm run build
-npm link        # makes `skill-optimizer` available globally
+Installation differs by agent. The canonical skill is `skills/skill-optimizer/SKILL.md`; every plugin manifest points at that same file.
+
+### Claude Code
+
+Register this repository as a Claude Code plugin marketplace:
+
+```text
+/plugin marketplace add fastxyz/skill-optimizer
 ```
 
-## Quickstart
+Then install the plugin:
 
-```bash
-export OPENROUTER_API_KEY=sk-or-...
+```text
+/plugin install skill-optimizer@skill-optimizer
 ```
 
-**Step 1 — Scaffold config** (run from your project root):
+### OpenAI Codex CLI
+
+Register this repository as a Codex plugin marketplace:
 
 ```bash
-npx skill-optimizer init cli       # or: init sdk, init mcp
+codex plugin marketplace add fastxyz/skill-optimizer
 ```
 
-The wizard asks for your repo path, models to benchmark, and where your `SKILL.md` lives. It creates a `skill-optimizer/` directory:
-- `skill-optimizer.json` — the main config (commit this)
-- `.skill-optimizer/cli-commands.json` — CLI surface manifest (template to edit, or auto-extracted)
-- `.skill-optimizer/tools.json` — MCP surface manifest (template to edit)
+Then open the plugin search interface:
 
-**Step 2 — (CLI/MCP only) Extract your surface** if code-first discovery yields nothing:
+```text
+/plugins
+```
+
+Select `skill-optimizer` and install it.
+
+### OpenAI Codex App
+
+In the Codex app, open Plugins from the sidebar, search for `skill-optimizer`, and install it from the Coding section.
+
+If it is not listed, install it from Codex CLI first:
 
 ```bash
-npx skill-optimizer import-commands --from ./src/cli.ts
-# or for a compiled binary:
-npx skill-optimizer import-commands --from my-cli --scrape
+codex plugin marketplace add fastxyz/skill-optimizer
 ```
 
-**Step 3 — Run a benchmark:**
+### Cursor
+
+Install the skill with the open skills CLI:
 
 ```bash
-npx skill-optimizer run --config ./skill-optimizer/skill-optimizer.json
+npx skills add fastxyz/skill-optimizer --skill skill-optimizer -a cursor -y
 ```
 
-**Step 4 — Run the optimizer** (iteratively improves your `SKILL.md`):
+Cursor can also import the skill from GitHub via Settings -> Rules -> Project Rules -> Add Rule -> Remote Rule (Github). The Cursor plugin metadata lives at `.cursor-plugin/plugin.json`.
 
-```bash
-npx skill-optimizer optimize --config ./skill-optimizer/skill-optimizer.json
+### OpenCode
+
+Tell OpenCode:
+
+```text
+Fetch and follow instructions from https://raw.githubusercontent.com/fastxyz/skill-optimizer/refs/heads/main/.opencode/INSTALL.md
 ```
 
-The optimizer never modifies your original `SKILL.md` — it works from versioned local copies in `.skill-optimizer/` and prints a progress table at the end showing per-model improvement.
+Or add the plugin to `opencode.json` at user or project scope:
 
----
-
-**Non-interactive / CI mode:**
-
-```bash
-# Accept all wizard defaults without prompts
-npx skill-optimizer init cli --yes
-
-# Load answers from a JSON file
-npx skill-optimizer init --answers answers.json
-```
-
-`answers.json` format:
 ```json
 {
-  "surface": "cli",
-  "repoPath": "/absolute/path/to/your-repo",
-  "models": ["openrouter/anthropic/claude-sonnet-4.6", "openrouter/openai/gpt-4o"],
-  "maxTasks": 20,
-  "maxIterations": 5,
-  "entryFile": "src/cli.ts"
+  "plugin": ["skill-optimizer@git+https://github.com/fastxyz/skill-optimizer.git"]
 }
 ```
 
-**Key config fields** in `skill-optimizer/skill-optimizer.json`:
+Restart OpenCode. See `docs/README.opencode.md` for details.
 
-| Field | What it does | Set it to |
-|-------|-------------|-----------|
-| `target.repoPath` | Root of the project being benchmarked | Absolute or relative path to your repo |
-| `target.discovery.sources` | Source files to scan for callable methods/commands/tools | e.g. `["../src/index.ts"]` or `["../src/server.ts"]` |
-| `target.skill` | Docs file the optimizer will edit | Path to your `SKILL.md` or equivalent guidance doc |
-| `benchmark.models` | Models to benchmark | Valid [OpenRouter](https://openrouter.ai/models) model IDs |
+### Gemini CLI
 
-## How it works
+Install the Gemini extension from GitHub:
 
-1. **Discover** callable surface (SDK methods / CLI commands / MCP tools) via tree-sitter or a manifest.
-2. **Scope** the surface with `target.scope.include` / `target.scope.exclude` globs.
-3. **Generate tasks** — one prompt per in-scope action, coverage-guaranteed.
-4. **Benchmark** — every configured model attempts every task; static evaluator checks action calls + args.
-5. **Verdict** — PASS/FAIL against two gates (per-model floor, weighted average).
-6. **Optimize** — create a local versioned copy of your `SKILL.md` (`skill-v{N}.md` in `.skill-optimizer/`), mutate it, re-benchmark, accept only if both gates hold, rollback if not. The target repo's original skill file is never modified.
-7. **Recommendations** — on FAIL, one critic call summarizes what to improve manually.
-8. **Progress table** — after the optimizer finishes, a per-model table shows Baseline → each iteration → Final → Δ so you can see exactly where each model improved.
-
-## Configuration reference
-
-See [docs/reference/config-schema.md](docs/reference/config-schema.md) for the full generated config reference — auto-updated at every build.
-
-See [docs/reference/errors.md](docs/reference/errors.md) for all error codes, descriptions, and fix instructions.
-
-## Interpreting the verdict
-
-Every benchmark run produces one of two verdicts: **PASS** or **FAIL**.
-
-Two gates must both be satisfied for a PASS:
-
-- **`benchmark.verdict.perModelFloor`** (default `0.6`): every model must pass at least this fraction of tasks. A single model below the floor fails the run, regardless of the average.
-- **`benchmark.verdict.targetWeightedAverage`** (default `0.7`): the weighted average score across all models must reach this threshold.
-
-**`benchmark.models[].weight`** (default `1.0`): heavier-weighted models count more toward the weighted average. Use higher weights for flagship models you care most about.
-
-The **optimizer** only accepts a mutation when:
-1. the weighted average improves by at least `minImprovement`, AND
-2. no model that was above the floor drops below it.
-
-**Exit codes**: `0` = PASS, `1` = FAIL — usable directly in CI pipelines.
-
-## Scope & coverage
-
-Control which actions are benchmarked with `target.scope`:
-
-- **`target.scope.include`** (default `["*"]`): glob patterns for actions to include.
-- **`target.scope.exclude`** (default `[]`): glob patterns for actions to exclude.
-
-The `*` wildcard matches any sequence of characters including dots and slashes — it is not limited to a single path segment.
-
-Examples:
-- `"Wallet.*"` — includes all Wallet methods
-- `"*.internal*"` — excludes anything with "internal" anywhere in the name
-- `"get_*"` — includes only getter actions
-
-Task generation is **coverage-guaranteed**: every in-scope action gets at least one task. If the first generation pass misses any, a targeted retry runs (max 2 iterations). If coverage still fails, an error names the uncovered actions and suggests either fixing SKILL.md guidance or adding them to `scope.exclude`.
-
-## Cost notes
-
-Rough LLM spend per run:
-
-- **Baseline benchmark**: N models × M tasks LLM calls.
-- **Optimizer iteration**: 1 mutation call + N models × M tasks re-benchmark per iteration.
-- **Recommendations**: 1 critic call, only on FAIL verdict.
-
-No per-failure LLM calls — feedback is deterministic (structured failure details + patterns + passing/failing diffs).
-
-## Dependencies
-
-The optimizer's coding agent is powered by `@mariozechner/pi-coding-agent` — a small OSS wrapper around OpenRouter that handles agent sessions and tool loops. Models are accessed through [OpenRouter](https://openrouter.ai/) — you need one API key for everything.
-
-## Troubleshooting
-
-**Missing `OPENROUTER_API_KEY`**: Set it in your shell before running:
 ```bash
-export OPENROUTER_API_KEY=sk-or-...
+gemini extensions install https://github.com/fastxyz/skill-optimizer
 ```
 
-**Dirty git**: The optimizer requires a clean git state in the target repo (`requireCleanGit: true` by default). Commit or stash uncommitted changes before running. Note: the optimizer never writes to the target repo's skill file — it works from local versioned copies in `.skill-optimizer/`.
+To update:
 
-**`maxTasks < scope_size`**: `benchmark.taskGeneration.maxTasks` must be >= the number of in-scope actions. Run `npx skill-optimizer --dry-run --config ./skill-optimizer.json` to see the count without making LLM calls.
+```bash
+gemini extensions update skill-optimizer
+```
 
-**Empty scope**: `target.scope.include` matched nothing. Check your glob patterns — remember `*` matches everything including dots.
+### Skill-Only Install
 
-**Legacy `skill-benchmark.json`**: Rename it to `skill-optimizer.json`. The loader will tell you if it finds the old name.
+If you only want the skill files without plugin metadata, use the open skills CLI:
 
-## Contributing
+```bash
+npx skills add fastxyz/skill-optimizer --skill skill-optimizer -a claude-code -a opencode -a codex -a cursor -y
+```
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md).
+## Local CLI Setup
+
+Requirements:
+
+- Node.js 20+
+- Docker
+- `OPENROUTER_API_KEY` for real model runs
+
+Install and build:
+
+```bash
+npm install
+npm run build
+```
+
+Only `openrouter/...` model refs are supported.
+
+## Quick Start
+
+Run the suite against the models listed in `suite.yml`:
+
+```bash
+npx tsx src/cli.ts run-suite examples/workbench/pdf/suite.yml --trials 1
+```
+
+Run one case directly:
+
+```bash
+npx tsx src/cli.ts run-case ./case.yml --model openrouter/google/gemini-2.5-flash
+```
+
+CLI help:
+
+```bash
+npx tsx src/cli.ts --help
+npx tsx src/cli.ts run-case --help
+npx tsx src/cli.ts run-suite --help
+```
+
+## How The Workbench Works
+
+The workbench gives an agent a skill/reference folder, an isolated `/work` directory, and deterministic graders. It is designed for evals where success can be verified from files, command logs, SQL, generated artifacts, or other local state.
+
+Core concepts:
+
+- A case is one user-like task plus one or more graders.
+- A suite is a matrix of cases and OpenRouter models.
+- `references/` is copied into `/work`; this is where the skill under test lives.
+- The agent phase sees only `/work`, not graders, hidden answers, `/case`, or `/results`.
+- Graders run after the agent with `$CASE`, `$WORK`, and `$RESULTS` available.
+- Graders are the acceptance contract. They can inspect workspace files and artifacts, `answer.json`, `trace.jsonl`, and result state under `$RESULTS`.
+
+Read `docs/workbench.md` for the full model: directory layout, Docker phases, graders, outputs, and debugging.
+
+## Examples
+
+Tracked examples live under `examples/workbench/`. The PDF example includes positive PDF extraction/splitting/creation cases and a negative case that checks the agent did not read the PDF skill file for a non-PDF task. The MCP example shows a local calculator server started as a hidden Docker service and exposed through the workbench `mcp` command.
+
+```bash
+npx tsx src/cli.ts run-suite examples/workbench/pdf/suite.yml --trials 1
+npx tsx src/cli.ts run-suite examples/workbench/mcp/suite.yml --trials 1
+```
+
+## Development
+
+```bash
+npm run typecheck
+npm test
+npm run build
+npx tsx src/cli.ts --help
+```
+
+For Docker runner or image changes:
+
+```bash
+docker build -t skill-optimizer-workbench:local -f docker/workbench-runner.Dockerfile .
+```
+
+Do not commit `.skill-eval/`, `.results/`, `.env`, or credentials.
